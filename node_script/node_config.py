@@ -121,7 +121,7 @@ class NodeConfig:
         # Maybe should edit detic_configs/Base-C2_L_R5021k_640b64_4x.yaml
         pack_path = rospkg.RosPack().get_path('detic_ros')
         cfg.MODEL.ROI_BOX_HEAD.CAT_FREQ_PATH = os.path.join(
-            pack_path, 'datasets/metadata/lvis_v1_train_cat_info.json')
+            pack_path, '/root/catkin_ws/src/detic_ros/datasets/metadata/lvis_v1_train_cat_info.json')
 
         cfg.freeze()
         return cfg

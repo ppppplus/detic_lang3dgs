@@ -8,27 +8,35 @@
   <arg name="out_debug_segimg" default="true" />
   <arg name="confidence_threshold" default="0.5" />
   <arg name="input_image" default="input" />
+  <arg name="input_depth" default="depth" />
   <arg name="compressed" default="true" />
   <arg name="device" default="auto" />
   <arg name="vocabulary" default="lvis" />
   <arg name="custom_vocabulary" default="" />
   <arg name="output_highest" default="false" />
+  <arg name="input_camera_info" default="camera_info" />
 
-  <arg name="_input_image" default="/$(arg namespace)/decompressed_image" if="$(arg compressed)"/>
-  <arg name="_input_image" default="$(arg input_image)" unless="$(arg compressed)"/>
+  <param name="use_sim_time" value="true" />
+
+  <!-- <arg name="_input_image" default="/$(arg namespace)/decompressed_image" if="$(arg compressed)"/> -->
+  <!-- <arg name="_input_image" default="$(arg input_image)" unless="$(arg compressed)"/> -->
+
 
   <group ns='$(arg namespace)'>
 
 
-    <include file="$(find detic_ros)/launch/decompress.launch" if="$(arg compressed)">
+    <!-- <include file="$(find detic_ros)/launch/decompress.launch" if="$(arg compressed)">
       <arg name="in" value="$(arg input_image)"/>
-    </include>
+    </include> -->
 
     <node name="detic_segmentor"
           pkg="detic_ros" type="node.py"
           output="screen" >
-    <remap from="~input_image" to="$(arg _input_image)"/>
+    <remap from="~input_image" to="$(arg input_image)"/>
+    <remap from="~input_depth" to="$(arg input_depth)"/>
+    <remap from="~input_camera_info" to="$(arg input_camera_info)"/>
     <param name="verbose" value="$(arg verbose)"/>
+    <param name="use_jsk_msgs" value="false"/>
     <param name="model_type" value="$(arg model_type)" />
     <param name="enable_pubsub" value="$(arg enable_pubsub)"/>
     <param name="out_debug_img" value="$(arg out_debug_img)"/>

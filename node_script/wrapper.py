@@ -15,10 +15,62 @@ from node_config import NodeConfig
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
 
-from detic_ros.msg import SegmentationInfo
+from detic_ros.msg import SegmentationInfo, SegmentationInstanceInfo
+
+import pickle
 
 _cv_bridge = CvBridge()
 
+### begin-fix 5-23 直接用OVIR-3D的cfg和args
+
+import argparse
+from detectron2.config import get_cfg
+from centernet.config import add_centernet_config
+from detic.config import add_detic_config
+import rospy
+from std_msgs.msg import Float32MultiArray
+def get_parser():
+    parser = argparse.ArgumentParser(description="Detectron2 demo for builtin configs")
+    parser.add_argument("--config-file", default="/root/catkin_ws/src/detic_ros/Detic/configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
+    parser.add_argument("--dataset", default="/home/lsy/dataset/CoRL_real")
+    parser.add_argument("--video", default="0001")
+    parser.add_argument("--output_folder", default="detic_output")
+    parser.add_argument("--vocabulary", default="imagenet21k", choices=['lvis', 'custom', 'icra23', 'lvis+icra23',
+                                                                 'lvis+ycb_video', 'ycb_video', 'scan_net',
+                                                                 'imagenet21k'])
+    parser.add_argument("--custom_vocabulary", default="", help="comma separated words")
+    parser.add_argument("--pred_all_class", action='store_true')
+    parser.add_argument("--confidence-threshold", type=float, default=0.3)
+    parser.add_argument("~input_image", default="")
+    parser.add_argument("~input_depth", default="")
+    parser.add_argument("~input_camera_info", default="")
+    parser.add_argument("__name", default="detic_segmentor")
+    parser.add_argument("__log", default="/root/.ros/log/20e5783e-1907-11ef-82aa-00d49ebf3ea2/docker-detic_segmentor-2.log")
+    parser.add_argument("--opts", help="'KEY VALUE' pairs", default=[], nargs=argparse.REMAINDER)
+    # --opts MODEL.WEIGHTS "models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"
+    # parser.add_argument("--opts", default=['MODEL.WEIGHTS', '/root/catkin_ws/src/detic_ros/models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth'], nargs=argparse.REMAINDER)
+    return parser
+
+def setup_cfg(args):
+    cfg = get_cfg()
+    add_centernet_config(cfg)
+    add_detic_config(cfg)
+    cfg.merge_from_file(args.config_file)
+    cfg.merge_from_list(args.opts)
+    # Set score_threshold for builtin models
+    cfg.MODEL.WEIGHTS = '/root/catkin_ws/src/detic_ros/models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth'
+    cfg.MODEL.RETINANET.SCORE_THRESH_TEST = args.confidence_threshold
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = args.confidence_threshold
+    cfg.MODEL.PANOPTIC_FPN.COMBINE.INSTANCES_CONFIDENCE_THRESH = args.confidence_threshold
+    cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'  # load later
+    cfg.DATALOADER.NUM_WORKERS = 2
+    
+    if not args.pred_all_class:
+        cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
+    cfg.freeze()
+    return cfg
+
+### end_fix
 
 @dataclass(frozen=True)
 class InferenceRawResult:
@@ -28,6 +80,7 @@ class InferenceRawResult:
     visualization: Optional[VisImage]
     header: Header
     detected_class_names: List[str]
+    features: Optional[Float32MultiArray] = None
 
     def get_ros_segmentaion_image(self) -> Image:
         seg_img = _cv_bridge.cv2_to_imgmsg(self.segmentation_raw_image, encoding="32SC1")
@@ -68,6 +121,15 @@ class InferenceRawResult:
                                     header=self.header)
         return seg_info
 
+    def get_segmentation_instance_info(self) -> SegmentationInstanceInfo:
+        seg_img = self.get_ros_segmentaion_image()
+        seg_instance_info = SegmentationInstanceInfo(detected_classes=self.detected_class_names,
+                                                     scores=self.scores,
+                                                     segmentation=seg_img,
+                                                     features=self.features,
+                                                     header=self.header)
+        return seg_instance_info
+
 
 class DeticWrapper:
     predictor: VisualizationDemo
@@ -82,14 +144,40 @@ class DeticWrapper:
             self.vocabulary = vocabulary
             self.custom_vocabulary = custom_vocabulary
 
+    class testArgs:
+        vocabulary = 'imagenet21k'
+        custom_vocabulary = ''
+        pred_all_class = False
+        confidence_threshold = 0.3
+        save_vis = False
+        opts = ['MODEL.WEIGHTS', 'src/detic_ros/models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth']
+        config_file = 'src/detic_ros/Detic/configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml'
+
     def __init__(self, node_config: NodeConfig):
         self._adhoc_hack_metadata_path()
         detectron_cfg = node_config.to_detectron_config()
-        dummy_args = self.DummyArgs(node_config.vocabulary, node_config.custom_vocabulary)
 
+        dummy_args = self.DummyArgs(node_config.vocabulary, node_config.custom_vocabulary)
         self.predictor = VisualizationDemo(detectron_cfg, dummy_args)
+        # 5-23 尝试直接把OVIR-3D的cfg和args用上
+        args = get_parser().parse_args()
+        cfg = setup_cfg(args)
+
+        # dummy_args = self.DummyArgs(node_config.vocabulary, node_config.custom_vocabulary)
+
+        # print("detectron_cfg = {}".format(detectron_cfg))
+        # print("dummy_args = ", dummy_args)
+        # print("dummy_args.vocabulary = ", dummy_args.vocabulary)
+        # print("dummy_args.custom_vocabulary = ", dummy_args.custom_vocabulary)
+
+        # testargs = self.testArgs()
+
+        
+        # 5-23 尝试直接把OVIR-3D的cfg和args用上
+        # self.predictor = VisualizationDemo(cfg, args)
         self.node_config = node_config
         self.class_names = self.predictor.metadata.get("thing_classes", None)
+
 
     @staticmethod
     def _adhoc_hack_metadata_path():
@@ -110,10 +198,11 @@ class DeticWrapper:
         if self.node_config.out_debug_img:
             predictions, visualized_output = self.predictor.run_on_image(img)
         else:
-            predictions = self.predictor.predictor(img)
+            predictions = self.predictor.predictor(img)#就是predict_instances_only中用的self.predictor
             visualized_output = None
         instances = predictions['instances'].to(torch.device("cpu"))
-
+        instances = self.predictor.predict_instances_only(img)
+        # print(type(instances))
         if self.node_config.verbose:
             time_elapsed = (rospy.Time.now() - time_start).to_sec()
             rospy.loginfo('elapsed time to inference {}'.format(time_elapsed))
@@ -122,6 +211,21 @@ class DeticWrapper:
         pred_masks = list(instances.pred_masks)
         scores = instances.scores.tolist()
         class_indices = instances.pred_classes.tolist()
+        # 保存instance到文件
+        with open('/root/catkin_ws/src/detic_ros/node_script/instance.pkl', 'wb') as f:
+            pickle.dump(instances, f)
+        features = instances.pred_box_features
+        # 将features转换为NumPy数组
+        features_np = [feature.numpy().astype(np.float32) for feature in features]
+
+        # 创建ROS消息
+        msg_temp = Float32MultiArray()
+        # msg.header = msg.header  # Create a Header object
+        msg_temp.data = np.concatenate(features_np).flatten() # Flatten the array to 1D
+
+        # 发布ROS消息
+        pub = rospy.Publisher('your_topic_name', Float32MultiArray, queue_size=10)
+        pub.publish(msg_temp)
 
         if len(scores) > 0 and self.node_config.output_highest:
             best_index = np.argmax(scores)
@@ -150,5 +254,6 @@ class DeticWrapper:
             scores,
             visualized_output,
             msg.header,
-            detected_classes_names)
+            detected_classes_names,
+            msg_temp)
         return result

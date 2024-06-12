@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>detic_ros_emia</name>
+  <name>detic_ros</name>
   <version>0.0.0</version>
   <description>The detic_ros package</description>
   <maintainer email="h-ishida@jsk.imi.i.u-tokyo.ac.jp">Hirokazu Ishida</maintainer>

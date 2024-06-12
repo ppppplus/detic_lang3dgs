@@ -10,7 +10,7 @@ import torch
 from wrapper import DeticWrapper
 from cv_bridge import CvBridge
 from detic_ros.msg import SegmentationInfo, SegmentationInstanceInfo
-from mask_rcnn_ros.msg import Result
+# from mask_rcnn_ros.msg import Result
 from detic_ros.srv import DeticSeg, DeticSegRequest, DeticSegResponse
 import numpy as np
 import cv2 as cv
@@ -21,11 +21,11 @@ import sensor_msgs.point_cloud2 as pc2
 import message_filters
 
 from std_msgs.msg import Float32MultiArray
-import pcl
+# import pcl
 from sensor_msgs.point_cloud2 import read_points
-import open3d as o3d
+# import open3d as o3d
 
-import ros_numpy
+# import ros_numpy
 
 _cv_bridge = CvBridge()
 issac_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/isaac_sim_config.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
@@ -92,7 +92,7 @@ class DeticRosNode:
                 self.pub_image_origin_depth = rospy.Publisher('~segmentation_image_origin_depth', Image, queue_size=1)
                 self.pub_camera_info = rospy.Publisher('~origin_camera_info', CameraInfo, queue_size=1)
 
-                self.pub_info_mask = rospy.Publisher('~segmentation_info_mask', Result, queue_size=1)
+                # self.pub_info_mask = rospy.Publisher('~segmentation_info_mask', Result, queue_size=1)
                 # add by yzc 6_10:新增一个发布实例分割mask的topic
                 self.pub_instance_mask = rospy.Publisher('~segmentation_instance_mask', SegmentationInstanceInfo, queue_size=1)
                 # add by yzc 6-11 新增发布实例rgb的topic
@@ -107,7 +107,7 @@ class DeticRosNode:
             else:
                 self.pub_debug_segmentation_image = None
             
-            self.sub_pcd = rospy.Subscriber('~/camera/depth/points', PointCloud2, self.callback_pcd)
+            # self.sub_pcd = rospy.Subscriber('~/camera/depth/points', PointCloud2, self.callback_pcd)
             # self.sub_feature  = rospy.Subscriber('~/docker/your_topic_name', Float32MultiArray, self.callback_feature)
 
         if node_config.num_torch_thread is not None:
@@ -195,7 +195,33 @@ class DeticRosNode:
         # Publish main topics
         if self.detic_wrapper.node_config.use_jsk_msgs:
             # assertion for mypy
-            assert self.pub_segimg is not None
+            assert self.pub_segimg is not None    # def callback_pcd(self, msg: PointCloud2):
+    #     # 通过pcl保存点云
+    #     # 从点云中提取三维坐标数值
+    #     # pc = pc2.read_points(msg, skip_nans=True, field_names=("x", "y", "z","rgb"))
+    #     # pass
+    #     pc = ros_numpy.numpify(msg)
+    #     pc = ros_numpy.point_cloud2.split_rgb_field(pc)
+    #     print("pc.shape",pc.shape)
+    #     heght = pc.shape[0]
+    #     width = pc.shape[1]
+    #     points = np.zeros((heght, width,3))
+    #     points[:,:, 0] = pc['x']
+    #     points[:,:, 1] = pc['y']
+    #     points[:,:, 2] = pc['z']
+    #     rgb = np.zeros((heght, width,3))
+    #     rgb[:,:, 0] = pc['r']
+    #     rgb[:,:, 1] = pc['g']
+    #     rgb[:,:, 2] = pc['b']
+    #     print("points.shape",points.shape)
+    #     print("rgb.shape",rgb.shape)
+    #     # 打印rgb中不为零的值
+    #     # print(rgb)
+    #     # open3d保存点云
+    #     pcd = o3d.geometry.PointCloud()
+    #     pcd.points = o3d.utility.Vector3dVector(points.reshape(-1,3))
+    #     pcd.colors = o3d.utility.Vector3dVector(rgb.reshape(-1,3)/255)
+    #     o3d.io.write_point_cloud("/root/catkin_ws/src/detic_ros/node_script/pcd.ply",pcd)
             assert self.pub_labels is not None
             assert self.pub_score is not None
             seg_img = raw_result.get_ros_segmentaion_image()
@@ -218,33 +244,33 @@ class DeticRosNode:
             self.pub_image_origin_rgb.publish(current_rgb)
             self.pub_image_origin_depth.publish(current_depth)
             self.pub_camera_info.publish(current_camera_info)
-
-            # add 6-10: 发布带有实例分割instance mask的topic
-            instance_mask = self.raw_result_to_instance_mask(raw_result)
-            self.pub_instance_mask.publish(instance_mask)
-
-            # add 6-11: 发布实例分割的rgb图像
-            instance_rgb = Image()
-            instance_rgb = instance_mask.segmentation
-            instance_rgb.header = current_rgb.header
-            self.pub_instance_rgb.publish(instance_rgb)
-
-
-        # Publish optional topics
-
-        if self.pub_debug_image is not None:
-            debug_img = raw_result.get_ros_debug_image()
-            self.pub_debug_image.publish(debug_img)
-
-        if self.pub_debug_segmentation_image is not None:
-            debug_seg_img = raw_result.get_ros_debug_segmentation_img()
-            self.pub_debug_segmentation_image.publish(debug_seg_img)
-
-        # Print debug info
-        if self.detic_wrapper.node_config.verbose:
-            time_elapsed_total = (rospy.Time.now() - msg.header.stamp).to_sec()
-            rospy.loginfo('total elapsed time in callback {}'.format(time_elapsed_total))
-
+    # def callback_pcd(self, msg: PointCloud2):
+    #     # 通过pcl保存点云
+    #     # 从点云中提取三维坐标数值
+    #     # pc = pc2.read_points(msg, skip_nans=True, field_names=("x", "y", "z","rgb"))
+    #     # pass
+    #     pc = ros_numpy.numpify(msg)
+    #     pc = ros_numpy.point_cloud2.split_rgb_field(pc)
+    #     print("pc.shape",pc.shape)
+    #     heght = pc.shape[0]
+    #     width = pc.shape[1]
+    #     points = np.zeros((heght, width,3))
+    #     points[:,:, 0] = pc['x']
+    #     points[:,:, 1] = pc['y']
+    #     points[:,:, 2] = pc['z']
+    #     rgb = np.zeros((heght, width,3))
+    #     rgb[:,:, 0] = pc['r']
+    #     rgb[:,:, 1] = pc['g']
+    #     rgb[:,:, 2] = pc['b']
+    #     print("points.shape",points.shape)
+    #     print("rgb.shape",rgb.shape)
+    #     # 打印rgb中不为零的值
+    #     # print(rgb)
+    #     # open3d保存点云
+    #     pcd = o3d.geometry.PointCloud()
+    #     pcd.points = o3d.utility.Vector3dVector(points.reshape(-1,3))
+    #     pcd.colors = o3d.utility.Vector3dVector(rgb.reshape(-1,3)/255)
+    #     o3d.io.write_point_cloud("/root/catkin_ws/src/detic_ros/node_script/pcd.ply",pcd)
     def callback_srv(self, req: DeticSegRequest) -> DeticSegResponse:
         msg = req.image
         raw_result = self.detic_wrapper.infer(msg)
@@ -269,33 +295,33 @@ class DeticRosNode:
         np.save("/root/catkin_ws/src/detic_ros/node_script/features.npy",features)
         # print("features.shape",features.shape)
 
-    def callback_pcd(self, msg: PointCloud2):
-        # 通过pcl保存点云
-        # 从点云中提取三维坐标数值
-        # pc = pc2.read_points(msg, skip_nans=True, field_names=("x", "y", "z","rgb"))
-        # pass
-        pc = ros_numpy.numpify(msg)
-        pc = ros_numpy.point_cloud2.split_rgb_field(pc)
-        print("pc.shape",pc.shape)
-        heght = pc.shape[0]
-        width = pc.shape[1]
-        points = np.zeros((heght, width,3))
-        points[:,:, 0] = pc['x']
-        points[:,:, 1] = pc['y']
-        points[:,:, 2] = pc['z']
-        rgb = np.zeros((heght, width,3))
-        rgb[:,:, 0] = pc['r']
-        rgb[:,:, 1] = pc['g']
-        rgb[:,:, 2] = pc['b']
-        print("points.shape",points.shape)
-        print("rgb.shape",rgb.shape)
-        # 打印rgb中不为零的值
-        # print(rgb)
-        # open3d保存点云
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points.reshape(-1,3))
-        pcd.colors = o3d.utility.Vector3dVector(rgb.reshape(-1,3)/255)
-        o3d.io.write_point_cloud("/root/catkin_ws/src/detic_ros/node_script/pcd.ply",pcd)
+    # def callback_pcd(self, msg: PointCloud2):
+    #     # 通过pcl保存点云
+    #     # 从点云中提取三维坐标数值
+    #     # pc = pc2.read_points(msg, skip_nans=True, field_names=("x", "y", "z","rgb"))
+    #     # pass
+    #     pc = ros_numpy.numpify(msg)
+    #     pc = ros_numpy.point_cloud2.split_rgb_field(pc)
+    #     print("pc.shape",pc.shape)
+    #     heght = pc.shape[0]
+    #     width = pc.shape[1]
+    #     points = np.zeros((heght, width,3))
+    #     points[:,:, 0] = pc['x']
+    #     points[:,:, 1] = pc['y']
+    #     points[:,:, 2] = pc['z']
+    #     rgb = np.zeros((heght, width,3))
+    #     rgb[:,:, 0] = pc['r']
+    #     rgb[:,:, 1] = pc['g']
+    #     rgb[:,:, 2] = pc['b']
+    #     print("points.shape",points.shape)
+    #     print("rgb.shape",rgb.shape)
+    #     # 打印rgb中不为零的值
+    #     # print(rgb)
+    #     # open3d保存点云
+    #     pcd = o3d.geometry.PointCloud()
+    #     pcd.points = o3d.utility.Vector3dVector(points.reshape(-1,3))
+    #     pcd.colors = o3d.utility.Vector3dVector(rgb.reshape(-1,3)/255)
+    #     o3d.io.write_point_cloud("/root/catkin_ws/src/detic_ros/node_script/pcd.ply",pcd)
         
 
 

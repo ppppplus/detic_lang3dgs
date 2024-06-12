@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(detic_ros_emia)
+project(detic_ros)
 
 find_package(catkin REQUIRED
     std_msgs

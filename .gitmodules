@@ -1,1 +1,3 @@
-
+[submodule "Detic"]
+	path = Detic
+	url = git@github.com:shiyoung77/Detic.git

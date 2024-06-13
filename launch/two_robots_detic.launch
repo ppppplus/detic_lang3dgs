@@ -2,8 +2,8 @@
   <arg name="verbose" default="true" />
   <arg name="model_type" default="swin" />
   <arg name="enable_pubsub" default="true" />
-  <arg name="out_debug_img" default="true" />
-  <arg name="out_debug_segimg" default="true" />
+  <arg name="out_debug_img" default="false" />
+  <arg name="out_debug_segimg" default="false" />
   <arg name="confidence_threshold" default="0.5" />
   <arg name="input_image" default="rgb_left" />
   <arg name="input_depth" default="depth_left" />

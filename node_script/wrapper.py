@@ -1,6 +1,8 @@
 import os
 from dataclasses import dataclass
 from typing import List, Optional
+import argparse
+import pickle
 
 import detic
 import numpy as np
@@ -9,26 +11,27 @@ import rospy
 import torch
 from cv_bridge import CvBridge
 from detectron2.utils.visualizer import VisImage
-from detic.predictor import VisualizationDemo
-from jsk_recognition_msgs.msg import Label, LabelArray, VectorArray
-from node_config import NodeConfig
-from sensor_msgs.msg import Image
-from std_msgs.msg import Header
-
-from detic_ros.msg import SegmentationInfo, SegmentationInstanceInfo
-
-import pickle
-
-_cv_bridge = CvBridge()
-
-### begin-fix 5-23 直接用OVIR-3D的cfg和args
-
-import argparse
 from detectron2.config import get_cfg
 from centernet.config import add_centernet_config
 from detic.config import add_detic_config
-import rospy
-from std_msgs.msg import Float32MultiArray
+from detic.predictor import VisualizationDemo
+from node_config import NodeConfig
+
+from jsk_recognition_msgs.msg import Label, LabelArray, VectorArray
+from sensor_msgs.msg import Image
+from std_msgs.msg import Header, Float32MultiArray
+from detic_ros.msg import SegmentationInfo, SegmentationInstanceInfo
+
+
+_cv_bridge = CvBridge()
+issac_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/isaac_sim_config.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+rgb_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/rgb_map.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+
+def get_id_by_index(index):
+    ids = issac_data['ID'][issac_data['index'] == index]
+    return ids[0] if ids else 0
+ 
+
 def get_parser():
     parser = argparse.ArgumentParser(description="Detectron2 demo for builtin configs")
     parser.add_argument("--config-file", default="/root/catkin_ws/src/detic_ros/Detic/configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
@@ -70,7 +73,6 @@ def setup_cfg(args):
     cfg.freeze()
     return cfg
 
-### end_fix
 
 @dataclass(frozen=True)
 class InferenceRawResult:
@@ -86,6 +88,23 @@ class InferenceRawResult:
         seg_img = _cv_bridge.cv2_to_imgmsg(self.segmentation_raw_image, encoding="32SC1")
         seg_img.header = self.header
         return seg_img
+    
+    def get_ros_segmentaion_image_rgb(self) -> Image:
+        LabelArray = self.get_label_array()
+        seg_img = self.get_ros_segmentaion_image()
+        mask = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
+        for i,label in enumerate(LabelArray.labels):
+            isaac_id = get_id_by_index(label.id)
+            mask[mask == i+1] = isaac_id
+        mask = mask.astype(np.int32)
+ 
+        rgb_img = np.zeros((mask.shape[0],mask.shape[1],3),dtype=np.uint8)
+        for i in range(1,21):
+            rgb_img[mask == i] = (rgb_data['red'][rgb_data['id'] == i][0],rgb_data['green'][rgb_data['id'] == i][0],rgb_data['blue'][rgb_data['id'] == i][0])
+        
+        seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
+        seg_img_rgb.header = seg_img.header
+        return seg_img_rgb
 
     def get_ros_debug_image(self) -> Image:
         message = "you didn't configure the wrapper so that it computes the debug images"
@@ -159,25 +178,10 @@ class DeticWrapper:
 
         dummy_args = self.DummyArgs(node_config.vocabulary, node_config.custom_vocabulary)
         self.predictor = VisualizationDemo(detectron_cfg, dummy_args)
-        # 5-23 尝试直接把OVIR-3D的cfg和args用上
         args = get_parser().parse_args()
         cfg = setup_cfg(args)
-
-        # dummy_args = self.DummyArgs(node_config.vocabulary, node_config.custom_vocabulary)
-
-        # print("detectron_cfg = {}".format(detectron_cfg))
-        # print("dummy_args = ", dummy_args)
-        # print("dummy_args.vocabulary = ", dummy_args.vocabulary)
-        # print("dummy_args.custom_vocabulary = ", dummy_args.custom_vocabulary)
-
-        # testargs = self.testArgs()
-
-        
-        # 5-23 尝试直接把OVIR-3D的cfg和args用上
-        # self.predictor = VisualizationDemo(cfg, args)
         self.node_config = node_config
         self.class_names = self.predictor.metadata.get("thing_classes", None)
-
 
     @staticmethod
     def _adhoc_hack_metadata_path():
@@ -198,7 +202,7 @@ class DeticWrapper:
         if self.node_config.out_debug_img:
             predictions, visualized_output = self.predictor.run_on_image(img)
         else:
-            predictions = self.predictor.predictor(img)#就是predict_instances_only中用的self.predictor
+            predictions = self.predictor.predictor(img)
             visualized_output = None
         instances = predictions['instances'].to(torch.device("cpu"))
         instances = self.predictor.predict_instances_only(img)
@@ -211,21 +215,11 @@ class DeticWrapper:
         pred_masks = list(instances.pred_masks)
         scores = instances.scores.tolist()
         class_indices = instances.pred_classes.tolist()
-        # 保存instance到文件
-        with open('/root/catkin_ws/src/detic_ros/node_script/instance.pkl', 'wb') as f:
-            pickle.dump(instances, f)
         features = instances.pred_box_features
-        # 将features转换为NumPy数组
         features_np = [feature.numpy().astype(np.float32) for feature in features]
 
-        # 创建ROS消息
-        msg_temp = Float32MultiArray()
-        # msg.header = msg.header  # Create a Header object
-        msg_temp.data = np.concatenate(features_np).flatten() # Flatten the array to 1D
-
-        # 发布ROS消息
-        pub = rospy.Publisher('your_topic_name', Float32MultiArray, queue_size=10)
-        pub.publish(msg_temp)
+        features_msg = Float32MultiArray()
+        features_msg.data = np.concatenate(features_np).flatten() # Flatten the array to 1D
 
         if len(scores) > 0 and self.node_config.output_highest:
             best_index = np.argmax(scores)
@@ -255,5 +249,5 @@ class DeticWrapper:
             visualized_output,
             msg.header,
             detected_classes_names,
-            msg_temp)
+            features_msg)
         return result

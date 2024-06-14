@@ -182,6 +182,12 @@ class DeticWrapper:
         cfg = setup_cfg(args)
         self.node_config = node_config
         self.class_names = self.predictor.metadata.get("thing_classes", None)
+        # print(self.class_names)
+        print("class name type ", np.shape(self.class_names))
+        data_array = np.array(self.class_names)
+        np.savetxt('output.txt', data_array, fmt='%s')
+        print("save into txt file")
+         
 
     @staticmethod
     def _adhoc_hack_metadata_path():

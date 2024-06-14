@@ -114,9 +114,9 @@ class DeticRosNode:
             self.pub_score.publish(scores)
         else:
             assert self.pub_info is not None
-            seg_info = raw_result.get_segmentation_info()
+            # seg_info = raw_result.get_segmentation_info()
             instance_info = raw_result.get_segmentation_instance_info()
-            self.pub_info.publish(seg_info)
+            # self.pub_info.publish(seg_info)
             self.pub_instance_info.publish(instance_info)
 
             seg_image = raw_result.get_ros_segmentaion_image()

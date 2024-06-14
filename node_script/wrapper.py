@@ -24,12 +24,6 @@ from detic_ros.msg import SegmentationInfo, SegmentationInstanceInfo
 
 
 _cv_bridge = CvBridge()
-issac_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/isaac_sim_config.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
-rgb_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/rgb_map.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
-
-def get_id_by_index(index):
-    ids = issac_data['ID'][issac_data['index'] == index]
-    return ids[0] if ids else 0
  
 
 def get_parser():
@@ -90,20 +84,55 @@ class InferenceRawResult:
         return seg_img
     
     def get_ros_segmentaion_image_rgb(self) -> Image:
-        LabelArray = self.get_label_array()
-        seg_img = self.get_ros_segmentaion_image()
-        mask = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
-        for i,label in enumerate(LabelArray.labels):
-            isaac_id = get_id_by_index(label.id)
-            mask[mask == i+1] = isaac_id
-        mask = mask.astype(np.int32)
- 
-        rgb_img = np.zeros((mask.shape[0],mask.shape[1],3),dtype=np.uint8)
-        for i in range(1,21):
-            rgb_img[mask == i] = (rgb_data['red'][rgb_data['id'] == i][0],rgb_data['green'][rgb_data['id'] == i][0],rgb_data['blue'][rgb_data['id'] == i][0])
+        use_version = 3
+        if use_version == 1:
+            id_to_rgb = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/lvis_id_name_rgb.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+            seg_img = self.get_ros_segmentaion_image()
+            id_img = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
+            rgb_img = np.zeros((id_img.shape[0], id_img.shape[1], 3), dtype=np.uint8)
+            for i in range(id_img.shape[0]):
+                for j in range(id_img.shape[1]):
+                    seg_id = id_img[i][j]
+                    if seg_id >= 1:
+                        rgb_img[i][j] = (id_to_rgb[seg_id-1][2], id_to_rgb[seg_id-1][3], id_to_rgb[seg_id-1][4])
+            
+            seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
+            seg_img_rgb.header = seg_img.header
         
-        seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
-        seg_img_rgb.header = seg_img.header
+        elif use_version == 2: # faster than 1
+            id_to_rgb = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/lvis_id_name_rgb.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+            seg_img = self.get_ros_segmentaion_image()
+            id_img = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
+            rgb_img = np.zeros((id_img.shape[0], id_img.shape[1], 3), dtype=np.uint8)
+            for i in range(1, 1204):
+                rgb_img[id_img == i] = (id_to_rgb[i-1][2], id_to_rgb[i-1][3], id_to_rgb[i-1][4])
+            
+            seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
+            seg_img_rgb.header = seg_img.header           
+
+
+        else:
+            issac_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/isaac_sim_config.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+            rgb_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/rgb_map.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+
+            def get_id_by_index(index):
+                ids = issac_data['id'][issac_data['index'] == index]
+                return ids[0] if ids else 0
+            
+            LabelArray = self.get_label_array()
+            seg_img = self.get_ros_segmentaion_image()
+            mask = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
+            for i,label in enumerate(LabelArray.labels):
+                isaac_id = get_id_by_index(label.id)
+                mask[mask == i+1] = isaac_id
+            mask = mask.astype(np.int32)
+    
+            rgb_img = np.zeros((mask.shape[0],mask.shape[1],3),dtype=np.uint8)
+            for i in range(1,21):
+                rgb_img[mask == i] = (rgb_data['red'][rgb_data['id'] == i][0],rgb_data['green'][rgb_data['id'] == i][0],rgb_data['blue'][rgb_data['id'] == i][0])
+            
+            seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
+            seg_img_rgb.header = seg_img.header
         return seg_img_rgb
 
     def get_ros_debug_image(self) -> Image:
@@ -182,11 +211,11 @@ class DeticWrapper:
         cfg = setup_cfg(args)
         self.node_config = node_config
         self.class_names = self.predictor.metadata.get("thing_classes", None)
-        # print(self.class_names)
+        print(self.class_names)
         print("class name type ", np.shape(self.class_names))
-        data_array = np.array(self.class_names)
-        np.savetxt('output.txt', data_array, fmt='%s')
-        print("save into txt file")
+        # data_array = np.array(self.class_names)
+        # np.savetxt('output.txt', data_array, fmt='%s')
+        # print("save into txt file")
          
 
     @staticmethod

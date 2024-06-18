@@ -1,25 +1,31 @@
 #!/usr/bin/env python3
 from typing import Optional
+
+import rospy
+from jsk_recognition_msgs.msg import LabelArray, VectorArray
+from node_config import NodeConfig
+from rospy import Publisher, Subscriber
+from sensor_msgs.msg import Image, CameraInfo
+import torch
+from wrapper import DeticWrapper
+from cv_bridge import CvBridge
+from detic_ros.msg import SegmentationInfo, SegmentationInstanceInfo
+from mask_rcnn_ros.msg import Result
+from detic_ros.srv import DeticSeg, DeticSegRequest, DeticSegResponse
 import numpy as np
 import cv2 as cv
-from cv_bridge import CvBridge
-import torch
-import rospy
-from rospy import Publisher, Subscriber
+
+from sensor_msgs.msg import PointCloud2
+import sensor_msgs.point_cloud2 as pc2
+# new add 
 import message_filters
 
-from node_config import NodeConfig
-from wrapper import DeticWrapper
-
-from sensor_msgs.msg import Image, CameraInfo, PointCloud2
-from jsk_recognition_msgs.msg import LabelArray, VectorArray
-from detic_ros.msg import SegmentationInfo, SegmentationInstanceInfo
-from detic_ros.srv import DeticSeg, DeticSegRequest, DeticSegResponse
 from std_msgs.msg import Float32MultiArray
-# import pcl
+import pcl
 from sensor_msgs.point_cloud2 import read_points
-# import open3d as o3d
-# import ros_numpy
+import open3d as o3d
+
+import ros_numpy
 
 _cv_bridge = CvBridge()
 issac_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/isaac_sim_config.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
@@ -45,8 +51,35 @@ class DeticRosNode:
     pub_info: Optional[Publisher]
     pub_info_mask: Optional[Publisher]
 
-    # debug 用于检测点云的发布raw_result_to_image
-    sub_pcd: Subscriberraw_result_to_imagegmentation', Image, queue_size=1)
+    # debug 用于检测点云的发布
+    sub_pcd: Subscriber
+
+    def __init__(self, node_config: Optional[NodeConfig] = None):
+        if node_config is None:
+            node_config = NodeConfig.from_rosparam()
+
+        rospy.loginfo("node_config: {}".format(node_config))
+
+        self.detic_wrapper = DeticWrapper(node_config)
+        self.srv_handler = rospy.Service('~segment_image', DeticSeg, self.callback_srv)
+        self.depth_image = Image() 
+        self.underprocessing = False
+
+        if node_config.enable_pubsub:
+            # As for large buff_size please see:
+            # https://answers.ros.org/question/220502/image-subscriber-lag-despite-queue-1/?answer=220505?answer=220505#post-id-22050://answers.ros.org/question/220502/image-subscriber-lag-despite-queue-1/?answer=220505?answer=220505#post-id-220505
+            # self.sub = message_filters.Subscriber('~input_image', Image, self.callback_image, queue_size=1, buff_size=2**24)
+            # self.sub_depth = message_filters.Subscriber('~input_depth', Image, self.callback_depth, queue_size=1, buff_size=2**24)
+            
+            self.sub = message_filters.Subscriber('~input_image', Image)
+            self.sub_depth = message_filters.Subscriber('~input_depth', Image)
+            self.sub_camera_info = message_filters.Subscriber('~input_camera_info', CameraInfo)
+
+
+            sync = message_filters.ApproximateTimeSynchronizer([self.sub, self.sub_depth, self.sub_camera_info], 10, 0.1)
+            sync.registerCallback(self.callback_image)
+            if node_config.use_jsk_msgs:
+                self.pub_segimg = rospy.Publisher('~segmentation', Image, queue_size=1)
                 self.pub_labels = rospy.Publisher('~detected_classes', LabelArray, queue_size=1)
                 self.pub_score = rospy.Publisher('~score', VectorArray, queue_size=1)
             else:
@@ -59,7 +92,7 @@ class DeticRosNode:
                 self.pub_image_origin_depth = rospy.Publisher('~segmentation_image_origin_depth', Image, queue_size=1)
                 self.pub_camera_info = rospy.Publisher('~origin_camera_info', CameraInfo, queue_size=1)
 
-                # self.pub_info_mask = rospy.Publisher('~segmentation_info_mask', Result, queue_size=1)
+                self.pub_info_mask = rospy.Publisher('~segmentation_info_mask', Result, queue_size=1)
                 # add by yzc 6_10:新增一个发布实例分割mask的topic
                 self.pub_instance_mask = rospy.Publisher('~segmentation_instance_mask', SegmentationInstanceInfo, queue_size=1)
                 # add by yzc 6-11 新增发布实例rgb的topic
@@ -74,7 +107,7 @@ class DeticRosNode:
             else:
                 self.pub_debug_segmentation_image = None
             
-            # self.sub_pcd = rospy.Subscriber('~/camera/depth/points', PointCloud2, self.callback_pcd)
+            self.sub_pcd = rospy.Subscriber('~/camera/depth/points', PointCloud2, self.callback_pcd)
             # self.sub_feature  = rospy.Subscriber('~/docker/your_topic_name', Float32MultiArray, self.callback_feature)
 
         if node_config.num_torch_thread is not None:
@@ -141,6 +174,15 @@ class DeticRosNode:
         # 保存mask_rgb 进行debug
         cv.imwrite("/root/catkin_ws/src/detic_ros/node_script/mask_rgb.png",mask_rgb)
         return segmentation_instance_info
+    
+
+    # def instance_mask_depth_to_rgb(self, instance_mask):
+    #     mask_depth = instance_mask.segmentation
+    #     mask_depth = _cv_bridge.imgmsg_to_cv2(mask_depth, "32SC1")
+    #     LabelArray = raw_result.get_label_array()
+    #     mask_rgb = np.zeros((mask_depth.shape[0],mask_depth.shape[1],3),dtype=np.uint8)
+
+
 
     def callback_image(self, msg: Image, msg_depth: Image, msg_camera_info: CameraInfo):
         # Inference
@@ -153,33 +195,7 @@ class DeticRosNode:
         # Publish main topics
         if self.detic_wrapper.node_config.use_jsk_msgs:
             # assertion for mypy
-            assert self.pub_segimg is not None    # def callback_pcd(self, msg: PointCloud2):
-    #     # 通过pcl保存点云
-    #     # 从点云中提取三维坐标数值
-    #     # pc = pc2.read_points(msg, skip_nans=True, field_names=("x", "y", "z","rgb"))
-    #     # pass
-    #     pc = ros_numpy.numpify(msg)
-    #     pc = ros_numpy.point_cloud2.split_rgb_field(pc)
-    #     print("pc.shape",pc.shape)
-    #     heght = pc.shape[0]
-    #     width = pc.shape[1]
-    #     points = np.zeros((heght, width,3))
-    #     points[:,:, 0] = pc['x']
-    #     points[:,:, 1] = pc['y']
-    #     points[:,:, 2] = pc['z']
-    #     rgb = np.zeros((heght, width,3))
-    #     rgb[:,:, 0] = pc['r']
-    #     rgb[:,:, 1] = pc['g']
-    #     rgb[:,:, 2] = pc['b']
-    #     print("points.shape",points.shape)
-    #     print("rgb.shape",rgb.shape)
-    #     # 打印rgb中不为零的值
-    #     # print(rgb)
-    #     # open3d保存点云
-    #     pcd = o3d.geometry.PointCloud()
-    #     pcd.points = o3d.utility.Vector3dVector(points.reshape(-1,3))
-    #     pcd.colors = o3d.utility.Vector3dVector(rgb.reshape(-1,3)/255)
-    #     o3d.io.write_point_cloud("/root/catkin_ws/src/detic_ros/node_script/pcd.ply",pcd)
+            assert self.pub_segimg is not None
             assert self.pub_labels is not None
             assert self.pub_score is not None
             seg_img = raw_result.get_ros_segmentaion_image()
@@ -196,11 +212,38 @@ class DeticRosNode:
             seg_image, seg_image_rgb = self.raw_result_to_image(raw_result)
             
             self.pub_image.publish(seg_image)
+
             self.pub_image_rgb.publish(seg_image_rgb)
             # origin rgb image & depth image
             self.pub_image_origin_rgb.publish(current_rgb)
             self.pub_image_origin_depth.publish(current_depth)
             self.pub_camera_info.publish(current_camera_info)
+
+            # add 6-10: 发布带有实例分割instance mask的topic
+            instance_mask = self.raw_result_to_instance_mask(raw_result)
+            self.pub_instance_mask.publish(instance_mask)
+
+            # add 6-11: 发布实例分割的rgb图像
+            instance_rgb = Image()
+            instance_rgb = instance_mask.segmentation
+            instance_rgb.header = current_rgb.header
+            self.pub_instance_rgb.publish(instance_rgb)
+
+
+        # Publish optional topics
+
+        if self.pub_debug_image is not None:
+            debug_img = raw_result.get_ros_debug_image()
+            self.pub_debug_image.publish(debug_img)
+
+        if self.pub_debug_segmentation_image is not None:
+            debug_seg_img = raw_result.get_ros_debug_segmentation_img()
+            self.pub_debug_segmentation_image.publish(debug_seg_img)
+
+        # Print debug info
+        if self.detic_wrapper.node_config.verbose:
+            time_elapsed_total = (rospy.Time.now() - msg.header.stamp).to_sec()
+            rospy.loginfo('total elapsed time in callback {}'.format(time_elapsed_total))
 
     def callback_srv(self, req: DeticSegRequest) -> DeticSegResponse:
         msg = req.image
@@ -225,6 +268,36 @@ class DeticRosNode:
         # 将其保存到本地
         np.save("/root/catkin_ws/src/detic_ros/node_script/features.npy",features)
         # print("features.shape",features.shape)
+
+    def callback_pcd(self, msg: PointCloud2):
+        # 通过pcl保存点云
+        # 从点云中提取三维坐标数值
+        # pc = pc2.read_points(msg, skip_nans=True, field_names=("x", "y", "z","rgb"))
+        # pass
+        pc = ros_numpy.numpify(msg)
+        pc = ros_numpy.point_cloud2.split_rgb_field(pc)
+        print("pc.shape",pc.shape)
+        heght = pc.shape[0]
+        width = pc.shape[1]
+        points = np.zeros((heght, width,3))
+        points[:,:, 0] = pc['x']
+        points[:,:, 1] = pc['y']
+        points[:,:, 2] = pc['z']
+        rgb = np.zeros((heght, width,3))
+        rgb[:,:, 0] = pc['r']
+        rgb[:,:, 1] = pc['g']
+        rgb[:,:, 2] = pc['b']
+        print("points.shape",points.shape)
+        print("rgb.shape",rgb.shape)
+        # 打印rgb中不为零的值
+        # print(rgb)
+        # open3d保存点云
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points.reshape(-1,3))
+        pcd.colors = o3d.utility.Vector3dVector(rgb.reshape(-1,3)/255)
+        o3d.io.write_point_cloud("/root/catkin_ws/src/detic_ros/node_script/pcd.ply",pcd)
+        
+
 
 
 if __name__ == '__main__':

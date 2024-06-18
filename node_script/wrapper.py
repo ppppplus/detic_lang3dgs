@@ -84,32 +84,19 @@ class InferenceRawResult:
         return seg_img
     
     def get_ros_segmentaion_image_rgb(self) -> Image:
-        use_version = 3
+        use_version = 1
         if use_version == 1:
             id_to_rgb = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/lvis_id_name_rgb.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
             seg_img = self.get_ros_segmentaion_image()
             id_img = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
             rgb_img = np.zeros((id_img.shape[0], id_img.shape[1], 3), dtype=np.uint8)
-            for i in range(id_img.shape[0]):
-                for j in range(id_img.shape[1]):
-                    seg_id = id_img[i][j]
-                    if seg_id >= 1:
-                        rgb_img[i][j] = (id_to_rgb[seg_id-1][2], id_to_rgb[seg_id-1][3], id_to_rgb[seg_id-1][4])
-            
-            seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
-            seg_img_rgb.header = seg_img.header
-        
-        elif use_version == 2: # faster than 1
-            id_to_rgb = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/lvis_id_name_rgb.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
-            seg_img = self.get_ros_segmentaion_image()
-            id_img = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
-            rgb_img = np.zeros((id_img.shape[0], id_img.shape[1], 3), dtype=np.uint8)
-            for i in range(1, 1204):
-                rgb_img[id_img == i] = (id_to_rgb[i-1][2], id_to_rgb[i-1][3], id_to_rgb[i-1][4])
+
+            LabelArray = self.get_label_array()
+            for i,label in enumerate(LabelArray.labels):
+                rgb_img[id_img == i+1] = (id_to_rgb[label.id-1][2], id_to_rgb[label.id-1][3], id_to_rgb[label.id-1][4])
             
             seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
             seg_img_rgb.header = seg_img.header           
-
 
         else:
             issac_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/isaac_sim_config.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
@@ -170,7 +157,7 @@ class InferenceRawResult:
         return seg_info
 
     def get_segmentation_instance_info(self) -> SegmentationInstanceInfo:
-        seg_img = self.get_ros_segmentaion_image()
+        seg_img = self.get_ros_segmentaion_image_rgb()
         seg_instance_info = SegmentationInstanceInfo(detected_classes=self.detected_class_names,
                                                      scores=self.scores,
                                                      segmentation=seg_img,
@@ -252,9 +239,12 @@ class DeticWrapper:
         class_indices = instances.pred_classes.tolist()
         features = instances.pred_box_features
         features_np = [feature.numpy().astype(np.float32) for feature in features]
-
+        
+        print("features_np ", len(features_np))
         features_msg = Float32MultiArray()
-        features_msg.data = np.concatenate(features_np).flatten() # Flatten the array to 1D
+        if len(features_np) > 0:
+            features_msg.data = np.concatenate(features_np).flatten() # Flatten the array to 1D
+        
 
         if len(scores) > 0 and self.node_config.output_highest:
             best_index = np.argmax(scores)

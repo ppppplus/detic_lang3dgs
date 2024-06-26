@@ -2,6 +2,7 @@
 from typing import Optional
 import torch
 import numpy as np
+import pandas as pd
 import cv2 as cv
 from cv_bridge import CvBridge
 
@@ -92,6 +93,15 @@ class DeticRosNode:
 
         rospy.loginfo('initialized node')
 
+    def write_into_csv(self, raw_result):
+        csv_file = '/root/catkin_ws/src/detic_ros/node_script/configs/lvis_detected_class.csv'
+        data = pd.read_csv(csv_file)
+        for i in range(len(raw_result.class_indices)):
+            new_data = {'index': raw_result.class_indices[i], 'name': raw_result.detected_class_names[i]}
+            if not ((data['index'] == new_data['index']) & (data['name'] == new_data['name'])).any():
+                data = data.append(new_data, ignore_index=True)
+        data.to_csv(csv_file, index=False)
+
     def callback_image(self, msg: Image, msg_depth: Image, msg_camera_info: CameraInfo):
         # Inference
         current_rgb = msg
@@ -113,6 +123,11 @@ class DeticRosNode:
             self.pub_labels.publish(labels)
             self.pub_score.publish(scores)
         else:
+            # print("class_indices", raw_result.class_indices)
+            # print("detected_class_names", raw_result.detected_class_names)
+            # if len(raw_result.class_indices) > 0:
+            #     self.write_into_csv(raw_result)
+
             assert self.pub_info is not None
             # seg_info = raw_result.get_segmentation_info()
             instance_info = raw_result.get_segmentation_instance_info()
@@ -141,7 +156,7 @@ class DeticRosNode:
         # Print debug info
         if self.detic_wrapper.node_config.verbose:
             time_elapsed_total = (rospy.Time.now() - msg.header.stamp).to_sec()
-            rospy.loginfo('total elapsed time in callback {}'.format(time_elapsed_total))
+            # rospy.loginfo('total elapsed time in callback {}'.format(time_elapsed_total))
 
 if __name__ == '__main__':
     rospy.init_node('detic_node', anonymous=True)

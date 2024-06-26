@@ -26,6 +26,25 @@ def csv_delete_column():
 
     print(f"已成功保留 'id' 和 'name' 列，并将其写入新的 CSV 文件: {output_csv_file}")
 
+def csv_add_id_rgb():
+    # 读取 CSV 文件
+    csv_file = '/root/catkin_ws/src/detic_ros/node_script/configs/lvis_detected_class.csv'
+    data = pd.read_csv(csv_file)
+
+    # 生成随机的 RGB 颜色值
+    num_rows = data.shape[0]
+    data['id'] = range(1, len(data)+1)
+    data['red'] = np.random.randint(0, 256, size=num_rows)
+    data['green'] = np.random.randint(0, 256, size=num_rows)
+    data['blue'] = np.random.randint(0, 256, size=num_rows)
+    
+
+    # 将结果写入新的 CSV 文件
+    output_csv_file = '/root/catkin_ws/src/detic_ros/node_script/configs/lvis_detected.csv'
+    data.to_csv(output_csv_file, index=False)
+
+    print(f"已成功添加id和RGB列，并将其写入新的 CSV 文件: {output_csv_file}")
+
 def csv_add_rgb():
     # 读取 CSV 文件
     csv_file = '/root/catkin_ws/src/detic_ros/node_script/configs/lvis_id_name.csv'
@@ -48,4 +67,4 @@ def analyze():
     print(np.shape(id_to_rgb))
     print(id_to_rgb[0][2])
 
-analyze()
+csv_add_id_rgb()

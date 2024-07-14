@@ -10,6 +10,7 @@ find_package(catkin REQUIRED
 add_message_files(
     FILES
     SegmentationInfo.msg
+    SegmentationInstanceInfo.msg
 )
 
 add_service_files(

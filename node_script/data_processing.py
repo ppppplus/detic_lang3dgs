@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import rospy
 
 def json_to_csv():
     # 读取 JSON 文件
@@ -26,7 +27,7 @@ def csv_delete_column():
 
     print(f"已成功保留 'id' 和 'name' 列，并将其写入新的 CSV 文件: {output_csv_file}")
 
-def csv_add_id_rgb():
+def csv_add_id_random_rgb():
     # 读取 CSV 文件
     csv_file = '/root/catkin_ws/src/detic_ros/node_script/configs/lvis_detected_class.csv'
     data = pd.read_csv(csv_file)
@@ -41,6 +42,25 @@ def csv_add_id_rgb():
 
     # 将结果写入新的 CSV 文件
     output_csv_file = '/root/catkin_ws/src/detic_ros/node_script/configs/lvis_detected.csv'
+    data.to_csv(output_csv_file, index=False)
+
+    print(f"已成功添加id和RGB列，并将其写入新的 CSV 文件: {output_csv_file}")
+
+def csv_add_id_rgb():
+    # 读取 CSV 文件
+    csv_file = '/root/catkin_ws/src/detic_ros/node_script/configs/v3_lvis_detected_class.csv'
+    data = pd.read_csv(csv_file)
+
+    # 生成RGB 颜色值
+    num_rows = data.shape[0]
+    data['id'] = range(1, len(data)+1)
+    data['red'] = np.random.randint(0, 256, size=num_rows)
+    data['green'] = data['index'] // 256
+    data['blue'] = data['index'] % 256
+    data['alpha'] = 255
+
+    # 将结果写入新的 CSV 文件
+    output_csv_file = '/root/catkin_ws/src/detic_ros/node_script/configs/v4_lvis_detected.csv'
     data.to_csv(output_csv_file, index=False)
 
     print(f"已成功添加id和RGB列，并将其写入新的 CSV 文件: {output_csv_file}")
@@ -67,4 +87,10 @@ def analyze():
     print(np.shape(id_to_rgb))
     print(id_to_rgb[0][2])
 
-csv_add_id_rgb()
+def test_rosmsg():
+    from detic_ros.msg import SegmentationInfo, SegmentationInstanceInfo
+    msg = SegmentationInstanceInfo()
+    msg.boxes = np.array([[1,1,2,3],[1,4,2,5]])
+    print(msg)
+
+test_rosmsg()

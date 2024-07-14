@@ -18,7 +18,7 @@ from detic.predictor import VisualizationDemo
 from node_config import NodeConfig
 
 from jsk_recognition_msgs.msg import Label, LabelArray, VectorArray
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, RegionOfInterest
 from std_msgs.msg import Header, Float32MultiArray
 from detic_ros.msg import SegmentationInfo, SegmentationInstanceInfo
 
@@ -73,6 +73,7 @@ class InferenceRawResult:
     segmentation_raw_image: np.ndarray
     class_indices: List[int]
     scores: List[float]
+    pred_boxes: Optional[Float32MultiArray]
     visualization: Optional[VisImage]
     header: Header
     detected_class_names: List[str]
@@ -84,41 +85,10 @@ class InferenceRawResult:
         return seg_img
     
     def get_ros_segmentaion_image_rgb(self) -> Image:
-        use_version = 2
+        use_version = 4
         if use_version == 1:
-            id_to_rgb = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/lvis_id_name_rgb.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
-            seg_img = self.get_ros_segmentaion_image()
-            id_img = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
-            rgb_img = np.zeros((id_img.shape[0], id_img.shape[1], 3), dtype=np.uint8)
-
-            LabelArray = self.get_label_array()
-            for i,label in enumerate(LabelArray.labels):
-                rgb_img[id_img == i+1] = (id_to_rgb[label.id-1][2], id_to_rgb[label.id-1][3], id_to_rgb[label.id-1][4])
-            
-            seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
-            seg_img_rgb.header = seg_img.header           
-
-        elif use_version == 2:
-            index_id_rgb = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/lvis_detected.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
-            seg_img = self.get_ros_segmentaion_image()
-            id_img = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
-            rgb_img = np.zeros((id_img.shape[0], id_img.shape[1], 3), dtype=np.uint8)
-
-            LabelArray = self.get_label_array()
-            for i,label in enumerate(LabelArray.labels):
-                index = label.id
-                ids = index_id_rgb['id'][index_id_rgb['index'] == index-1]
-                id = ids[0] if ids else 0
-                # print("index ", index, "to id ", id )
-                if id > 0:
-                    rgb_img[id_img == i+1] = (index_id_rgb[id-1][3], index_id_rgb[id-1][4], index_id_rgb[id-1][5])
-            
-            seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
-            seg_img_rgb.header = seg_img.header
-
-        else:
-            issac_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/isaac_sim_config.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
-            rgb_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/rgb_map.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+            issac_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/v1_isaac_sim_config.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+            rgb_data = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/v1_rgb_map.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
 
             def get_id_by_index(index):
                 ids = issac_data['id'][issac_data['index'] == index]
@@ -138,6 +108,57 @@ class InferenceRawResult:
             
             seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
             seg_img_rgb.header = seg_img.header
+        
+        elif use_version == 2:
+            id_to_rgb = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/v2_lvis_id_name_rgb.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+            seg_img = self.get_ros_segmentaion_image()
+            id_img = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
+            rgb_img = np.zeros((id_img.shape[0], id_img.shape[1], 3), dtype=np.uint8)
+
+            LabelArray = self.get_label_array()
+            for i,label in enumerate(LabelArray.labels):
+                rgb_img[id_img == i+1] = (id_to_rgb[label.id-1][2], id_to_rgb[label.id-1][3], id_to_rgb[label.id-1][4])
+            
+            seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
+            seg_img_rgb.header = seg_img.header           
+
+        elif use_version == 3:
+            index_id_rgb = np.genfromtxt('/root/catkin_ws/src/detic_ros/node_script/configs/v3_lvis_detected.csv', delimiter=',', names=True, dtype=None, encoding='utf-8')
+            seg_img = self.get_ros_segmentaion_image()
+            id_img = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
+            rgb_img = np.zeros((id_img.shape[0], id_img.shape[1], 3), dtype=np.uint8)
+
+            LabelArray = self.get_label_array()
+            for i,label in enumerate(LabelArray.labels):
+                index = label.id
+                ids = index_id_rgb['id'][index_id_rgb['index'] == index-1]
+                id = ids[0] if ids else 0
+                # print("index ", index, "to id ", id )
+                if id > 0:
+                    rgb_img[id_img == i+1] = (index_id_rgb[id-1][3], index_id_rgb[id-1][4], index_id_rgb[id-1][5])
+            
+            seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
+            seg_img_rgb.header = seg_img.header
+
+        elif use_version == 4:
+            seg_img = self.get_ros_segmentaion_image()
+            id_img = _cv_bridge.imgmsg_to_cv2(seg_img, "32SC1")
+            rgb_img = np.zeros((id_img.shape[0], id_img.shape[1], 3), dtype=np.uint8)            
+            
+            LabelArray = self.get_label_array()
+            for i,label in enumerate(LabelArray.labels):
+                rgb_r = i+1
+                rgb_g = label.id // 256
+                rgb_b = label.id % 256
+                rgb_img[id_img == i+1] = (rgb_r, rgb_g, rgb_b)
+            
+            seg_img_rgb = _cv_bridge.cv2_to_imgmsg(rgb_img, encoding="rgb8")
+            seg_img_rgb.header = seg_img.header            
+            
+        else:
+            seg_img_rgb = Image()
+            seg_img_rgb.header = self.header
+
         return seg_img_rgb
 
     def get_ros_debug_image(self) -> Image:
@@ -175,10 +196,21 @@ class InferenceRawResult:
         return seg_info
 
     def get_segmentation_instance_info(self) -> SegmentationInstanceInfo:
-        seg_img = self.get_ros_segmentaion_image_rgb()
+        use_bounding_box = False
+        box_array = []
+        if use_bounding_box:
+            box_array = []
+            for box in self.pred_boxes:
+                box_msg = RegionOfInterest()
+                box_msg.x_offset = box[0]
+                box_msg.y_offset = box[1]
+                box_msg.height = box[2]-box[0]
+                box_msg.width = box[3]-box[1]
+                box_msg.do_rectify = False
+                box_array.append(box_msg)
         seg_instance_info = SegmentationInstanceInfo(detected_classes=self.detected_class_names,
                                                      scores=self.scores,
-                                                     segmentation=seg_img,
+                                                     boxes=box_array,
                                                      features=self.features,
                                                      header=self.header)
         return seg_instance_info
@@ -220,8 +252,7 @@ class DeticWrapper:
         print("class name type ", np.shape(self.class_names))
         # data_array = np.array(self.class_names)
         # np.savetxt('output.txt', data_array, fmt='%s')
-        # print("save into txt file")
-         
+        # print("save into txt file")     
 
     @staticmethod
     def _adhoc_hack_metadata_path():
@@ -244,21 +275,23 @@ class DeticWrapper:
         else:
             predictions = self.predictor.predictor(img)
             visualized_output = None
+        
         instances = predictions['instances'].to(torch.device("cpu"))
         instances = self.predictor.predict_instances_only(img)
         # print(type(instances))
         if self.node_config.verbose:
             time_elapsed = (rospy.Time.now() - time_start).to_sec()
             # rospy.loginfo('elapsed time to inference {}'.format(time_elapsed))
-            # rospy.loginfo('detected {} classes'.format(len(instances)))
+            rospy.loginfo('detected {} classes'.format(len(instances)))
 
+        boxes = instances.pred_boxes
+        pred_boxes = [box.numpy().astype(np.uint32) for box in boxes]
         pred_masks = list(instances.pred_masks)
         scores = instances.scores.tolist()
         class_indices = instances.pred_classes.tolist()
         features = instances.pred_box_features
         features_np = [feature.numpy().astype(np.float32) for feature in features]
-        
-        # print("features_np ", len(features_np))
+
         features_msg = Float32MultiArray()
         if len(features_np) > 0:
             features_msg.data = np.concatenate(features_np).flatten() # Flatten the array to 1D
@@ -285,10 +318,12 @@ class DeticWrapper:
 
         # Get class and score arrays
         detected_classes_names = [self.class_names[i] for i in class_indices]
+
         result = InferenceRawResult(
             data,
             class_indices,
             scores,
+            pred_boxes,
             visualized_output,
             msg.header,
             detected_classes_names,

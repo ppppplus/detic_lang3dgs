@@ -26,16 +26,15 @@ class DeticRosNode:
     sub_image: Subscriber
     sub_depth: Subscriber
     sub_camera_info: Subscriber
-    sub_pcd: Subscriber
 
     # used when use_jsk_msgs = False
     pub_info: Optional[Publisher]
-    pub_image: Optional[Publisher] # hydra_ros_node
-    pub_image_rgb: Optional[Publisher]
+    pub_image: Optional[Publisher] 
+    pub_image_rgb: Optional[Publisher] # used in nodelet
     pub_image_origin_rgb: Optional[Publisher]
-    pub_image_origin_depth: Optional[Publisher] # hydra_ros_node
-    pub_camera_info: Optional[Publisher] # hydra_ros_node
-    pub_instance_info: Optional[Publisher] # instance_fusion_node
+    pub_image_origin_depth: Optional[Publisher] # used in nodelet
+    pub_camera_info: Optional[Publisher] # used in nodelet
+    pub_instance_info: Optional[Publisher] # # used in instance_fusion_node
 
     # used when use_jsk_msgs = True
     pub_segimg: Optional[Publisher]
@@ -123,20 +122,18 @@ class DeticRosNode:
             self.pub_labels.publish(labels)
             self.pub_score.publish(scores)
         else:
-            # print("class_indices", raw_result.class_indices)
-            # print("detected_class_names", raw_result.detected_class_names)
             # if len(raw_result.class_indices) > 0:
             #     self.write_into_csv(raw_result)
 
             assert self.pub_info is not None
             # seg_info = raw_result.get_segmentation_info()
-            instance_info = raw_result.get_segmentation_instance_info()
             # self.pub_info.publish(seg_info)
+            instance_info = raw_result.get_segmentation_instance_info()
             self.pub_instance_info.publish(instance_info)
 
-            seg_image = raw_result.get_ros_segmentaion_image()
+            # seg_image = raw_result.get_ros_segmentaion_image()
+            # self.pub_image.publish(seg_image)
             seg_image_rgb = raw_result.get_ros_segmentaion_image_rgb()
-            self.pub_image.publish(seg_image)
             self.pub_image_rgb.publish(seg_image_rgb)
 
             # Original rgb image & depth image & camera info

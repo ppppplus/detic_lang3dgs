@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 import argparse
 import pickle
-
+from centernet.config import add_centernet_config
 import detic
 import numpy as np
 import rospkg
@@ -12,7 +12,7 @@ import torch
 from cv_bridge import CvBridge
 from detectron2.utils.visualizer import VisImage
 from detectron2.config import get_cfg
-from centernet.config import add_centernet_config
+
 from detic.config import add_detic_config
 from detic.predictor import VisualizationDemo
 from node_config import NodeConfig

@@ -1,0 +1,162 @@
+Index: train.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/train.py b/train.py
+--- a/train.py	(revision 4e82ea88c117c880ee04e88ab6cd1a3f4745f847)
++++ b/train.py	(date 1719169350291)
+@@ -13,7 +13,7 @@
+ import torch
+ from random import randint
+ from utils.loss_utils import l1_loss, ssim, tv_loss 
+-from gaussian_renderer import render, network_gui
++from gaussian_renderer import gsplat_render as render, network_gui
+ import sys
+ from scene import Scene, GaussianModel
+ from utils.general_utils import safe_state
+@@ -130,7 +130,7 @@
+             if iteration < opt.densify_until_iter:
+                 # Keep track of max radii in image-space for pruning
+                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
+-                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
++                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, image.shape[2], image.shape[1])
+ 
+                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+Index: scene/gaussian_model.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/scene/gaussian_model.py b/scene/gaussian_model.py
+--- a/scene/gaussian_model.py	(revision 4e82ea88c117c880ee04e88ab6cd1a3f4745f847)
++++ b/scene/gaussian_model.py	(date 1719166015492)
+@@ -433,6 +433,10 @@
+ 
+         torch.cuda.empty_cache()
+ 
+-    def add_densification_stats(self, viewspace_point_tensor, update_filter):
+-        self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
++    def add_densification_stats(self, viewspace_point_tensor, update_filter, width, height):
++        grad = viewspace_point_tensor.grad[update_filter,:2]
++        # Normalize the gradient to [-1, 1] screen size
++        grad[:, 0] *= width * 0.5
++        grad[:, 1] *= height * 0.5
++        self.xyz_gradient_accum[update_filter] += torch.norm(grad, dim=-1, keepdim=True)
+         self.denom[update_filter] += 1
+\ No newline at end of file
+Index: render.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/render.py b/render.py
+--- a/render.py	(revision 4e82ea88c117c880ee04e88ab6cd1a3f4745f847)
++++ b/render.py	(date 1719206327187)
+@@ -14,7 +14,7 @@
+ import os
+ from tqdm import tqdm
+ from os import makedirs
+-from gaussian_renderer import render, render_edit 
++from gaussian_renderer import gsplat_render as render, render_edit
+ import torchvision
+ from utils.general_utils import safe_state
+ from argparse import ArgumentParser
+Index: gaussian_renderer/__init__.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/gaussian_renderer/__init__.py b/gaussian_renderer/__init__.py
+--- a/gaussian_renderer/__init__.py	(revision 4e82ea88c117c880ee04e88ab6cd1a3f4745f847)
++++ b/gaussian_renderer/__init__.py	(date 1719208836472)
+@@ -259,3 +259,88 @@
+             'feature_map': feature_map,
+             "depth": depth} ###d
+ 
++from gsplat.project_gaussians import project_gaussians
++from gsplat.sh import spherical_harmonics
++from gsplat.rasterize import rasterize_gaussians
++def gsplat_render(viewpoint_camera, pc: GaussianModel, pipe, bg_color: torch.Tensor, scaling_modifier=1.0, override_color=None):
++    tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
++    tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
++    focal_length_x = viewpoint_camera.image_width / (2 * tanfovx)
++    focal_length_y = viewpoint_camera.image_height / (2 * tanfovy)
++
++    img_height = int(viewpoint_camera.image_height)
++    img_width = int(viewpoint_camera.image_width)
++
++    xys, depths, radii, conics, comp, num_tiles_hit, cov3d = project_gaussians(  # type: ignore
++        means3d=pc.get_xyz,
++        scales=pc.get_scaling,
++        glob_scale=scaling_modifier,
++        quats=pc.get_rotation,
++        viewmat=viewpoint_camera.world_view_transform.T,
++        # projmat=viewpoint_camera.full_projection.T,
++        fx=focal_length_x,
++        fy=focal_length_y,
++        cx=img_width / 2.,
++        cy=img_height / 2.,
++        img_height=img_height,
++        img_width=img_width,
++        block_width=16,
++    )
++
++    try:
++        xys.retain_grad()
++    except:
++        pass
++
++    viewdirs = pc.get_xyz.detach() - viewpoint_camera.camera_center  # (N, 3)
++    # viewdirs = viewdirs / viewdirs.norm(dim=-1, keepdim=True)
++    rgbs = spherical_harmonics(pc.active_sh_degree, viewdirs, pc.get_features)
++    rgbs = torch.clamp(rgbs + 0.5, min=0.0)  # type: ignore
++
++    # opacities = pc.get_opacity
++    # if self.anti_aliased is True:
++    #     opacities = opacities * comp[:, None]
++
++    def rasterize_features(input_features, bg, distilling: bool = False):
++        opacities = pc.get_opacity
++        if distilling is True:
++            opacities = opacities.detach()
++        return rasterize_gaussians(  # type: ignore
++            xys,
++            depths,
++            radii,
++            conics,
++            num_tiles_hit,  # type: ignore
++            input_features,
++            opacities,
++            img_height=img_height,
++            img_width=img_width,
++            block_width=16,
++            background=bg,
++            return_alpha=False,
++        ).permute(2, 0, 1)
++
++    rgb = rasterize_features(rgbs, bg_color)
++    depth = rasterize_features(depths.unsqueeze(-1).repeat(1, 3), torch.zeros((3,), dtype=torch.float, device=bg_color.device))
++
++    semantic_features = pc.get_semantic_feature.squeeze(1)
++    output_semantic_feature_map_list = []
++    chunk_size = 32
++    bg_color = torch.zeros((chunk_size,), dtype=torch.float, device=bg_color.device)
++    for i in range(semantic_features.shape[-1] // chunk_size):
++        start = i * chunk_size
++        output_semantic_feature_map_list.append(rasterize_features(
++            semantic_features[..., start:start + chunk_size],
++            bg_color,
++            distilling=True,
++        ))
++    feature_map = torch.concat(output_semantic_feature_map_list, dim=0)
++
++    return {
++        "render": rgb,
++        "depth": depth[:1],
++        'feature_map': feature_map,
++        "viewspace_points": xys,
++        "visibility_filter": radii > 0,
++        "radii": radii,
++    }
